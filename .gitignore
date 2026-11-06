@@ -1,0 +1,7 @@
+# build output (rebuild with ./build.sh, ./release.sh)
+build/
+dist/
+# never commit Kickstart ROMs or Commodore disk images
+*.rom
+*.adf
+__pycache__/
