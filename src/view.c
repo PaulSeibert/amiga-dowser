@@ -1,4 +1,4 @@
-/* Oasis - text and hex viewer. Written by Paul Seibert, (c) 2026 Desert Palms Software.
+/* Dowser (shared with Oasis) - text and hex viewer. Written by Paul Seibert, (c) 2026 Desert Palms Software.
  *
  * Text: the file (up to half the largest free block) is read into memory, and an index of
  * where each screen line starts is built for the window's width (long lines wrap, tabs
@@ -449,7 +449,7 @@ static LONG show(struct Window *parent, struct TextAttr *ta, BOOL hex)
         CLOSEWINDOW | RAWKEY | VANILLAKEY | NEWSIZE | GADGETDOWN | GADGETUP | MOUSEMOVE | REFRESHWINDOW,
         WINDOWCLOSE | WINDOWDRAG | WINDOWDEPTH | WINDOWSIZING | SIZEBRIGHT | SMART_REFRESH |
             ACTIVATE | NOCAREREFRESH,
-        NULL, NULL, (UBYTE *)"Oasis", NULL, NULL, 200, 60, 0, 0, WBENCHSCREEN
+        NULL, NULL, (UBYTE *)"Dowser", NULL, NULL, 200, 60, 0, 0, WBENCHSCREEN
     };
     struct TextFont *font = NULL;
     struct IntuiMessage *im;

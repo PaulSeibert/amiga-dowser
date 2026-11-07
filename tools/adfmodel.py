@@ -27,7 +27,8 @@ def csum_ok(b):
 
 
 class Model:
-    def __init__(self, path):
+    def __init__(self, path, bad=()):
+        self.bad = set(bad)      # blocks to treat as unreadable (a damaged floppy)
         data = open(path, 'rb').read()
         assert len(data) == NB * 512
         self.blk = [data[i * 512:(i + 1) * 512] for i in range(NB)]
@@ -92,7 +93,7 @@ class Model:
                 steps = 0
                 while e and steps < NB:
                     steps += 1
-                    if not 2 <= e < NB or self.owner[e] is not None:
+                    if not 2 <= e < NB or self.owner[e] is not None or e in self.bad:
                         break
                     h = self.blk[e]
                     if u32(h, 0) != 2:
@@ -122,6 +123,8 @@ class Model:
                 break
             if not first:
                 self.claim(b, 'ext', o)
+            if b in self.bad:
+                break
             x = self.blk[b]
             if not first and (u32(x, 0) != 16 or u32(x, 0x1F4) != hdr):
                 break
@@ -138,6 +141,7 @@ class Model:
         for i in range(1, len(lst)):
             if lst[i] != lst[i - 1] + 1:
                 runs += 1
+        self.objs[o]['blocks'] = lst
         self.objs[o]['nblocks'] = len(lst)
         self.objs[o]['frags'] = runs
 

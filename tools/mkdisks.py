@@ -63,6 +63,9 @@ images = {
     'full': ('ffs', ['write src/huge huge.bin', 'write src/readme readme']),
     'blank': ('ofs', []),
     'boot20': ('ofs', ['boot install', 'write src/readme readme']),   # the 2.0+ Install boot block
+    # for the recovery tests: three files deleted (their headers and data stay on the disk)
+    'r-delofs': ('ofs', tree() + ['delete readme', 'delete sub/a.txt', 'delete big.bin']),
+    'r-delffs': ('ffs', tree() + ['delete readme', 'delete sub/a.txt', 'delete big.bin']),
 }
 
 with open(os.path.join(out, 'make.sh'), 'w', newline='\n') as f:

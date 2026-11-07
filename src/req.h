@@ -1,4 +1,4 @@
-/* Oasis - small modal dialogs on the Workbench screen (1.3 has no EasyRequest or ASL). */
+/* Dowser (shared with Oasis) - small modal dialogs on the Workbench screen (1.3 has no EasyRequest or ASL). */
 #ifndef REQ_H
 #define REQ_H
 #include <exec/types.h>

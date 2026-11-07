@@ -12,11 +12,15 @@
 #include "boot.h"
 #include "check.h"
 #include "blockview.h"
+#include "recover.h"
+#include "scan.h"
 #include "cmd.h"
 
 static struct FS fs;             /* static: far too big for a stack */
 static struct Disk disk;
 static struct Check chk;         /* static: big */
+static struct Recover rec;
+static struct Surface surf;
 static char line[600];
 
 static void out(const char *s)
@@ -206,6 +210,110 @@ static int boot(void)
     return 0;
 }
 
+/* ---- recovery ----------------------------------------------------------------------------- */
+
+static int deleted(void)
+{
+    static char where[PATHMAX];
+    int i, whole = 0;
+    rec_scan(&fs, &disk, &rec);
+    for (i = 0; i < rec.n; i++) {
+        struct Found *f = &rec.f[i];
+        rec_where(&fs, &rec, i, where, PATHMAX);
+        fmt(line, "%s|%lc|%ld|%s|%s|%s|%ld\n", f->name, (LONG)(f->dir ? 'd' : 'f'), f->size, rec_status(f),
+            f->orphan ? "orphan" : "deleted", where, (LONG)f->header);
+        out(line);
+        if (!f->dir && f->status == FD_WHOLE)
+            whole++;
+    }
+    fmt(line, "found: %ld (recoverable files: %ld)\n", (LONG)rec.n, (LONG)whole);
+    out(line);
+    return 0;
+}
+
+static BOOL r_progress(void *ctx, const char *name)
+{
+    return c_progress(ctx, 0, 0);
+}
+
+/* RESCUE <src> ALL | <path> | DELETED <name> | DELETED ALL  TO <drawer> */
+static int rescue(char **what, int n, const char *dest)
+{
+    static char path[PATHMAX];
+    struct RescueStats st;
+    char *z = (char *)&st;
+    int i, k;
+    BPTR l;
+    for (i = 0; i < (int)sizeof(st); i++)
+        z[i] = 0;
+    (void)l;
+    if (n == 1 && !nocase_cmp(what[0], "ALL"))
+        rec_rescue(&fs, &disk, 0, dest, &st, r_progress, NULL);
+    else if (n == 2 && !nocase_cmp(what[0], "DELETED")) {
+        rec_scan(&fs, &disk, &rec);
+        for (k = 0; k < rec.n && !st.aborted; k++)
+            if (!rec.f[k].dir && (!nocase_cmp(what[1], "ALL") || !nocase_cmp(what[1], rec.f[k].name)))
+                rec_rescue_found(&fs, &disk, &rec, k, dest, !nocase_cmp(what[1], "ALL"), &st, r_progress, NULL);
+    } else if (n == 1) {
+        for (k = 1; k < fs.nobj; k++) {
+            fs_path(&fs, k, path, PATHMAX);
+            if (!nocase_cmp(path, what[0]))
+                break;
+        }
+        if (k == fs.nobj) {
+            fmt(line, "dowser: no %s on the disk\n", what[0]);
+            out(line);
+            return 10;
+        }
+        rec_rescue(&fs, &disk, k, dest, &st, r_progress, NULL);
+    } else {
+        out("dowser: RESCUE <source> ALL | <path> | DELETED <name> | DELETED ALL TO <drawer>\n");
+        return 10;
+    }
+    fmt(line, "Rescued %ld files and %ld drawers (%ld bytes).\n", st.files, st.dirs, st.bytes);
+    out(line);
+    if (st.badblocks) {
+        fmt(line, "Blocks that could not be read, written as zeros: %ld.\n", st.badblocks);
+        out(line);
+    }
+    if (st.err) {
+        fmt(line, "dowser: could not write %s: %s\n", st.errpath, dos_errstr(st.err));
+        out(line);
+    }
+    if (st.aborted)
+        out("Stopped.\n");
+    return st.err || st.aborted ? 10 : st.badblocks ? 5 : 0;
+}
+
+static BOOL s_progress(void *ctx, int t)
+{
+    return c_progress(ctx, 0, 0);
+}
+
+static int scan(void)
+{
+    int t;
+    LONG err;
+    if (disk.unit < 0) {
+        out("an image file: every track can be read (the surface scan is for floppies)\n");
+        return 0;
+    }
+    if ((err = scan_run(&disk, &surf, s_progress, NULL))) {
+        fmt(line, "dowser: %s\n", disk_errstr(err));
+        out(line);
+        return 10;
+    }
+    for (t = 0; t < NTRACKS; t++)
+        if (surf.track[t] != TRK_OK) {
+            fmt(line, "track %s: %s\n", scan_trackname(t), disk_errstr(surf.err[t]));
+            out(line);
+        }
+    fmt(line, "result: %ld tracks read, %ld fine, %ld without AmigaDOS sectors, %ld damaged%s\n", (LONG)surf.done,
+        (LONG)(surf.done - surf.nodos - surf.damaged), (LONG)surf.nodos, (LONG)surf.damaged, surf.aborted ? " (stopped)" : "");
+    out(line);
+    return surf.nodos || surf.damaged ? 5 : 0;
+}
+
 int cmd_run(int argc, char **argv)
 {
     int rc = 5;
@@ -215,7 +323,7 @@ int cmd_run(int argc, char **argv)
         return 0;
     }
     if (argc >= 4 && (is(argv[2], "INFO") || is(argv[2], "MAP") || is(argv[2], "FILES") || is(argv[2], "REPORT") ||
-                      is(argv[2], "CHECK") || is(argv[2], "BOOT") ||
+                      is(argv[2], "CHECK") || is(argv[2], "BOOT") || is(argv[2], "DELETED") || is(argv[2], "SCAN") ||
                       (is(argv[2], "BLOCK") && argc >= 5))) {
         if (!load(argv[3]))
             return 10;
@@ -238,6 +346,10 @@ int cmd_run(int argc, char **argv)
             boot();
         } else if (is(argv[2], "CHECK"))
             rc = check();
+        else if (is(argv[2], "DELETED"))
+            rc = deleted();
+        else if (is(argv[2], "SCAN"))
+            rc = scan();
         else if (is(argv[2], "BOOT"))
             rc = boot();
         else {
@@ -250,6 +362,29 @@ int cmd_run(int argc, char **argv)
         unload();
         return rc;
     }
+    if (argc >= 7 && is(argv[2], "RESCUE") && is(argv[argc - 2], "TO")) {
+        BPTR l;
+        /* the destination first: once the drive is Dowser's, DOS can't answer about it
+           (and no "insert disk" or "not a DOS disk" requester that would wait for a click) */
+        dos_quiet(TRUE);
+        l = Lock((STRPTR)argv[argc - 1], ACCESS_READ);
+        dos_quiet(FALSE);
+        if (!l) {
+            fmt(line, "dowser: no drawer %s to rescue into\n", argv[argc - 1]);
+            out(line);
+            return 10;
+        }
+        UnLock(l);
+        if (rec_samedisk(argv[3], argv[argc - 1])) {
+            out("dowser: will not rescue onto the disk being read (it could overwrite what is rescued)\n");
+            return 10;
+        }
+        if (!load(argv[3]))
+            return 10;
+        rc = rescue(argv + 4, argc - 6, argv[argc - 1]);
+        unload();
+        return rc;
+    }
     out("Dowser command mode. Usage (source: DF0:-DF3: or an .adf file):\n"
         "  dowser CMD INFO <source>         the disk: type, name, dates, blocks, files\n"
         "  dowser CMD MAP <source>          the block map (80 cylinders x 22 blocks)\n"
@@ -257,6 +392,10 @@ int cmd_run(int argc, char **argv)
         "  dowser CMD CHECK <source>        what is wrong with the disk, in plain English\n"
         "  dowser CMD BOOT <source>         the boot block: checksum, boot code, text in it\n"
         "  dowser CMD REPORT <source>       all of the above from one reading of the disk\n"
+        "  dowser CMD DELETED <source>      deleted files (and files whose drawer is lost) still on it\n"
+        "  dowser CMD RESCUE <source> ALL | <path> | DELETED <name> | DELETED ALL TO <drawer>\n"
+        "                                   copy files off the disk, around any damage\n"
+        "  dowser CMD SCAN <source>         read every track of a floppy afresh\n"
         "  dowser CMD BLOCK <source> <n>    one block: what it is, and its contents\n"
         "  dowser CMD MEM                   free memory\n");
     return rc;

@@ -285,6 +285,10 @@ LONG fs_scan(struct FS *fs, struct Disk *d, FsProgress p, void *ctx, const char 
             return err;
         }
         summarise(fs, b, blk, err);
+        if (b % SECTORS == SECTORS - 1)                   /* the track is done: how did it go */
+            fs->track[b / SECTORS] = !d->cachederr ? TRK_OK : (d->cachederr == TDERR_NoSecHdr ||
+                d->cachederr == TDERR_TooFewSecs || d->cachederr == TDERR_BadSecPreamble ||
+                d->cachederr == TDERR_BadSecID) ? TRK_NODOS : TRK_DAMAGED;
         if (b == 0) {
             fs->dostype = fs_long(blk, 0);
             fs->dos = (fs->dostype & 0xFFFFFF00UL) == 0x444F5300UL && (fs->dostype & 0xFF) <= 5;
@@ -295,6 +299,19 @@ LONG fs_scan(struct FS *fs, struct Disk *d, FsProgress p, void *ctx, const char 
     }
     fs->kind[0] = fs->kind[1] = BK_BOOT;
     fs->root = NBLOCKS / 2;
+    if (!fs->dos && fs->sum[fs->root].type == T_HEADER && fs->sum[fs->root].sectype == SEC_ROOT &&
+        fs->sum[fs->root].csumok) {
+        /* the boot block is damaged, but there is a root block: AmigaDOS after all. OFS if
+           there are OFS data blocks, FFS if not */
+        fs->dos = fs->bootbad = TRUE;
+        fs->ffs = TRUE;
+        for (b = 2; b < NBLOCKS; b++)
+            if (fs->sum[b].type == T_DATA && fs->sum[b].csumok) {
+                fs->ffs = FALSE;
+                break;
+            }
+        fs->dostype = fs->ffs ? 0x444F5301UL : 0x444F5300UL;
+    }
     if (!fs->dos) {
         for (b = 2; b < NBLOCKS; b++)
             fs->kind[b] = (fs->flags[b] & BF_READERR) ? BK_UNREAD : BK_UNSEEN;

@@ -1,4 +1,4 @@
-/* Oasis - AmigaDOS helpers for Kickstart 1.3 (V33).
+/* Dowser (shared with Oasis) - AmigaDOS helpers for Kickstart 1.3 (V33).
  * Written by Paul Seibert, (c) 2026 Desert Palms Software. */
 #include <exec/memory.h>
 #include <dos/dos.h>

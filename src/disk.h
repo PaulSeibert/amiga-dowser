@@ -30,6 +30,8 @@ LONG disk_read(struct Disk *d, LONG block, UBYTE *buf);
 void disk_close(struct Disk *d);
 /* how reading track t went as a whole: 0, or the trackdisk error (for the surface scan) */
 LONG disk_trackerr(struct Disk *d, LONG t);
+/* forget the tracks known to be bad, so they are read again */
+void disk_forget(struct Disk *d);
 
 /* "DF1:" -> 1, anything else -1 */
 int  disk_unit(const char *src);

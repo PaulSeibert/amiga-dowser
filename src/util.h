@@ -1,4 +1,4 @@
-/* Oasis - small string helpers (no stdio: keeps the program small). */
+/* Dowser (shared with Oasis) - small string helpers (no stdio: keeps the program small). */
 #ifndef UTIL_H
 #define UTIL_H
 #include <exec/types.h>

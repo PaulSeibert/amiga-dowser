@@ -50,10 +50,13 @@ enum { OK_DIR, OK_FILE, OK_SOFTLINK, OK_HARDLINK };
 enum { F_NOTDOS = 1, F_BOOTSUM, F_ROOT, F_ROOTCSUM, F_BMINVALID, F_BMCSUM, F_BMBAD, F_HDRCSUM,
        F_DATACSUM, F_TWICE, F_UNMARKED, F_LOST, F_CHAINRANGE, F_CHAINTYPE, F_CHAINLOOP, F_PARENT,
        F_HASHSLOT, F_EXTBAD, F_DATATYPE, F_DATAOWNER, F_DATASEQ, F_DATASIZE, F_SIZE, F_UNREAD,
-       F_UNREADFREE, F_DIRCACHE, F_COUNT };
+       F_UNREADFREE, F_DIRCACHE, F_BOOTDOS, F_COUNT };
 #define NOOBJ 0xFFFF
 struct Prob { UBYTE code; UBYTE pad; UWORD block; UWORD obj; };
 #define MAXPROB 64
+
+/* how a track read */
+enum { TRK_OK, TRK_NODOS, TRK_DAMAGED };
 
 /* object status bits */
 #define OS_UNREADABLE 1          /* some of its blocks can't be read */
@@ -91,6 +94,8 @@ struct FS {
     int   nobj, objcap;
     BOOL  aborted;
     BOOL  rootok;                /* the root block was readable and looked like one */
+    BOOL  bootbad;               /* the boot block doesn't say DOS, but the root block is fine */
+    UBYTE track[NTRACKS];        /* how each track read: TRK_... */
     struct Prob prob[MAXPROB];   /* what the walk ran into */
     int   nprob;
 };

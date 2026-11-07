@@ -27,6 +27,8 @@
 #include "view.h"
 #include "req.h"
 #include "about.h"
+#include "recover.h"
+#include "scan.h"
 #include "ui.h"
 
 extern struct GfxBase *GfxBase;
@@ -70,6 +72,9 @@ static UWORD *chip;              /* the fill patterns, in chip RAM */
 static struct FS fs;
 static struct Disk disk;
 static struct Check chk;
+static struct Recover rec;
+static struct Surface surf;     /* the last surface scan (surf.valid) */
+static char lastdest[256] = "RAM:";
 static BOOL loaded;
 static char source[256], label[80];
 static char lastimage[256] = "Work:";
@@ -84,7 +89,7 @@ static int nboot;
 
 static struct Btn topb[NTOP], tabs[NTABS], bot[NBOT];
 static const char *const topLabel[NTOP] = { "DF0:", "DF1:", "DF2:", "DF3:", "Image", "Rescan" };
-static const char *const tabLabel[NTABS] = { "Check", "Files", "Boot" };
+static const char *const tabLabel[NTABS] = { "Check", "Files", "Deleted", "Boot", "Surface" };
 static const char *const botLabel[NBOT] = { "Block", "Rescue", "Surface" };
 static struct Gadget prop;
 static struct PropInfo propInfo;
@@ -170,6 +175,9 @@ static int blockstyle(LONG b)
     UBYTE f = fs.flags[b];
     if (!loaded)
         return SY_FREE;
+    /* unreadable wins over everything: it is what the user most needs to see */
+    if ((f & BF_READERR) || (surf.valid && surf.track[b / SECTORS] != TRK_OK))
+        return SY_UNREAD;
     if (f & (BF_TWICE | BF_UNMARKED | BF_CSUM))
         return SY_FAULT;
     switch (fs.kind[b]) {
@@ -332,7 +340,7 @@ static void initbtn(struct Btn *b, int id, const char *lab, int x, int y, int w,
     AddGadget(win, &b->g, (UWORD)~0);
 }
 
-static __attribute__((unused)) void enable(struct Btn *b, BOOL on)
+static void enable(struct Btn *b, BOOL on)
 {
     UWORD pos;
     if (!b->used || b->on == on)
@@ -386,7 +394,7 @@ static void addgadgets(void)
         x += topb[i].w + BGAP;
     }
     for (i = 0; i < NTABS; i++)
-        initbtn(&tabs[i], GID_TAB + i, tabLabel[i], X0 + i * (76 + BGAP), yTabs, 76, FALSE, TRUE);
+        initbtn(&tabs[i], GID_TAB + i, tabLabel[i], X0 + i * (72 + BGAP), yTabs, 72, FALSE, TRUE);
     for (i = 0; i < NBOT; i++)
         initbtn(&bot[i], GID_BOT + i, botLabel[i], X0 + i * (76 + BGAP), yBot, 76, TRUE, i == BB_BLOCK);
     propInfo.Flags = AUTOKNOB | FREEVERT;
@@ -416,6 +424,15 @@ static int count(int t)
         return chk.nf + (fs.dos ? 2 : 1);
     if (t == TAB_FILES)
         return fs.nobj > 0 ? fs.nobj - 1 : 0;
+    if (t == TAB_DELETED)
+        return rec.n + 1;
+    if (t == TAB_SURFACE) {
+        int n = 2, k;
+        for (k = 0; k < NTRACKS; k++)
+            if ((surf.valid ? surf.track[k] : fs.track[k]) != TRK_OK)
+                n++;
+        return n;
+    }
     return nboot;
 }
 
@@ -462,6 +479,64 @@ static void rowtext(int t, int i, char *out, int size)
             ln[n++] = ' ';
         fmt(ln + n, " %8s %5ld %4ld  %s", sz, (LONG)o->nblocks, (LONG)o->frags,
             o->status & OS_UNREADABLE ? "unreadable" : o->status & OS_DAMAGED ? "damaged" : "ok");
+        scopy(out, ln, size);
+    } else if (t == TAB_DELETED) {
+        if (i < rec.n) {
+            struct Found *f = &rec.f[i];
+            char sz[16];
+            int n;
+            rec_where(&fs, &rec, i, path, PATHMAX);
+            if (f->dir)
+                scopy(sz, "Drawer", sizeof(sz));
+            else
+                fmt(sz, "%ld", f->size);
+            for (n = 0; n < 24 && f->name[n]; n++)
+                ln[n] = f->name[n];
+            while (n < 24)
+                ln[n++] = ' ';
+            fmt(ln + n, " %8s  %-18s %s, from %s", sz, rec_status(f), f->orphan ? "orphan" : "deleted",
+                !path[0] ? "the top" : path);
+        } else {
+            int k, whole = 0, files = 0;
+            for (k = 0; k < rec.n; k++)
+                if (!rec.f[k].dir) {
+                    files++;
+                    if (rec.f[k].status == FD_WHOLE)
+                        whole++;
+                }
+            if (!rec.n)
+                scopy(ln, fs.dos ? "No deleted or lost files found." : "Not an AmigaDOS disk.", sizeof(ln));
+            else
+                fmt(ln, "%ld files found, %ld of them recoverable. Rescue copies them to another drawer.",
+                    (LONG)files, (LONG)whole);
+        }
+        scopy(out, ln, size);
+    } else if (t == TAB_SURFACE) {
+        UBYTE *tr = surf.valid ? surf.track : fs.track;
+        int k, row = 2;
+        if (i == 0) {
+            int bad = 0;
+            for (k = 0; k < NTRACKS; k++)
+                if (tr[k] != TRK_OK)
+                    bad++;
+            if (disk_unit(source) < 0)
+                scopy(ln, "An image file: every track can be read. (The surface scan is for floppies.)", sizeof(ln));
+            else if (!bad)
+                fmt(ln, "All 160 tracks read well%s.", surf.valid ? " (surface scan)" : " when the disk was read");
+            else
+                fmt(ln, "%ld of 160 tracks could not be read%s:", (LONG)bad, surf.valid ? " (surface scan)" : "");
+        } else if (i == 1)
+            scopy(ln, disk_unit(source) >= 0 ? "Surface reads every track again, past the drive's buffer." : "", sizeof(ln));
+        else {
+            ln[0] = 0;
+            for (k = 0; k < NTRACKS; k++)
+                if (tr[k] != TRK_OK && row++ == i) {
+                    fmt(ln, "Track %s: %s", scan_trackname(k), tr[k] == TRK_NODOS ?
+                        "no AmigaDOS sectors (unformatted, or a custom format such as copy protection)" :
+                        surf.valid ? disk_errstr(surf.err[k]) : "damaged");
+                    break;
+                }
+        }
         scopy(out, ln, size);
     } else if (i < nboot)
         scopy(out, bootlines[i], size);
@@ -640,6 +715,8 @@ static void selectrow(int i)
         selectblk(fs.obj[i + 1].header, i + 1);
     else if (tab == TAB_BOOT)
         selectblk(0, -1);
+    else if (tab == TAB_DELETED && i < rec.n)
+        selectblk(rec.f[i].header, -1);
 }
 
 static void settab(int t)
@@ -650,6 +727,12 @@ static void settab(int t)
 }
 
 /* ---- reading a disk ----------------------------------------------------------------------------- */
+
+static void drivereleased(void)
+{
+    ULONG m;
+    CurrentTime(&released, &m);
+}
 
 static BOOL s_progress(void *ctx, LONG done, LONG total)
 {
@@ -713,14 +796,15 @@ static void load(const char *src)
         message(msg);
         return;
     }
+    surf.valid = FALSE;
+    disk_forget(&disk);                              /* a fresh reading (it may be another disk) */
     err = fs_scan(&fs, &disk, s_progress, NULL, &why);
-    if (!err)
+    if (!err) {
         check_run(&fs, &disk, &chk);
-    disk_close(&disk);                               /* DOS can have the drive back */
-    {
-        ULONG m;
-        CurrentTime(&released, &m);
+        rec_scan(&fs, &disk, &rec);
     }
+    disk_close(&disk);                               /* DOS can have the drive back */
+    drivereleased();
     afterbusy();
     if (err) {
         fmt(msg, "Cannot read %s: %s.", src, why ? why : disk_errstr(err));
@@ -731,6 +815,8 @@ static void load(const char *src)
     }
     loaded = TRUE;
     makeboot();
+    enable(&bot[BB_RESCUE], fs.dos);
+    enable(&bot[BB_SURFACE], disk_unit(src) >= 0);
     if (fs.dos) {
         static const char *const kind[] = { "OFS", "FFS", "OFS intl", "FFS intl", "OFS dircache", "FFS dircache" };
         fmt(label, "%s  %s  %ld/1760 used", fs.volname, (fs.dostype & 0xFF) <= 5 ? kind[fs.dostype & 0xFF] : "?",
@@ -791,13 +877,166 @@ static void blockview(LONG b)
     view_text(win, &topaz8, bvtitle, bvbuf, len);
     view_sethook(NULL);
     disk_close(&disk);
-    {
-        ULONG m;
-        CurrentTime(&released, &m);
-    }
+    drivereleased();
     afterbusy();
     if (bvblock != selb && bvblock >= 0)
         selectblk(bvblock, fs.owner[bvblock] ? fs.owner[bvblock] - 1 : -1);
+}
+
+static void drivereleased(void);
+
+static BOOL r_progress(void *ctx, const char *name)
+{
+    BOOL stop = FALSE;
+    char line[100];
+    const char *leaf = name, *q;
+    for (q = name; *q; q++)
+        if (*q == '/' || *q == ':')
+            leaf = q + 1;
+    if (!resizedDuring) {
+        fmt(line, "Rescuing %s   (Esc stops)", leaf);
+        textpad(X0, yInfo, HI, BG, line, (XR - X0 + 1) / 8);
+    }
+    flushinput(&stop);
+    return !stop;
+}
+
+static void rescue(void)
+{
+    static char body[200], dest[256];
+    struct RescueStats st;
+    char *z = (char *)&st;
+    const char *why;
+    int a, k, obj = -1, found = -1;
+    BPTR l;
+    if (!loaded || !fs.dos)
+        return;
+    if (tab == TAB_FILES && cur[TAB_FILES] < fs.nobj - 1) {
+        static char path[PATHMAX];
+        obj = cur[TAB_FILES] + 1;
+        fs_path(&fs, obj, path, PATHMAX);
+        fmt(body, "Copy \"%s\"%s off the disk,\nor everything on it?", path,
+            fs.obj[obj].kind == OK_DIR ? " (and all in it)" : "");
+        a = req_choose(win, &topaz8, "Rescue", body, "This one|Everything|Cancel");
+        if (a == 1)
+            obj = 0;
+        else if (a)
+            obj = -1;
+    } else if (tab == TAB_DELETED && rec.n) {
+        int i = cur[TAB_DELETED];
+        if (i < rec.n && !rec.f[i].dir) {
+            fmt(body, "Copy the %s file \"%s\" off the disk,\nor all files found (in the drawers they were in)?",
+                rec.f[i].orphan ? "lost" : "deleted", rec.f[i].name);
+            a = req_choose(win, &topaz8, "Rescue", body, "This file|All found|Cancel");
+        } else
+            a = req_choose(win, &topaz8, "Rescue", "Copy all the files found off the disk\n(in the drawers they were in)?",
+                           "All found|Cancel") ? 2 : 1;
+        found = a == 0 ? i : a == 1 ? -2 : -1;        /* -2: all */
+    } else {
+        a = req_choose(win, &topaz8, "Rescue", "Copy everything on the disk to another drawer?", "Everything|Cancel");
+        obj = a == 0 ? 0 : -1;
+    }
+    afterbusy();
+    if (obj < 0 && found == -1)
+        return;
+    scopy(dest, lastdest, sizeof(dest));
+    if (!req_string(win, &topaz8, "Rescue", "Copy into this drawer (on another disk), e.g. RAM: or Work:", dest, 255)
+        || !dest[0]) {
+        afterbusy();
+        return;
+    }
+    afterbusy();
+    dos_quiet(TRUE);
+    l = Lock((STRPTR)dest, ACCESS_READ);
+    dos_quiet(FALSE);
+    if (!l) {
+        fmt(body, "There is no drawer %s.", dest);
+        message(body);
+        return;
+    }
+    UnLock(l);
+    scopy(lastdest, dest, sizeof(lastdest));
+    if (rec_samedisk(source, dest)) {                /* (before the drive is opened: see there) */
+        message("Not onto the disk being read: it could overwrite what is being rescued.");
+        return;
+    }
+    if (disk_open(&disk, source, &why)) {
+        fmt(body, "Cannot open %s: %s.", source, why);
+        message(body);
+        return;
+    }
+    for (k = 0; k < (int)sizeof(st); k++)
+        z[k] = 0;
+    if (obj >= 0)
+        rec_rescue(&fs, &disk, obj, dest, &st, r_progress, NULL);
+    else
+        for (k = 0; k < rec.n && !st.aborted; k++)
+            if (!rec.f[k].dir && (found == -2 || k == found))
+                rec_rescue_found(&fs, &disk, &rec, k, dest, found == -2, &st, r_progress, NULL);
+    disk_close(&disk);
+    drivereleased();
+    afterbusy();
+    if (st.err)
+        fmt(body, "Could not write %s:\n%s.\n\nRescued so far: %ld files.", st.errpath, dos_errstr(st.err), st.files);
+    else
+        fmt(body, "Rescued %ld file%s and %ld drawer%s (%ld bytes)\ninto %s.%s%s", st.files, st.files == 1 ? "" : "s",
+            st.dirs, st.dirs == 1 ? "" : "s", st.bytes, dest,
+            st.badblocks ? "\n\nBlocks that could not be read were written as zeros: " : "",
+            st.aborted ? "\n\nStopped before the end." : "");
+    if (st.badblocks && !st.err) {
+        char n[12];
+        fmt(n, "%ld.", st.badblocks);
+        scat(body, n, sizeof(body));
+    }
+    req_choose(win, &topaz8, "Rescue", body, "OK");
+    afterbusy();
+    message(st.err ? "Rescue stopped by an error." : "Rescue finished.");
+}
+
+static BOOL sc_progress(void *ctx, int t)
+{
+    BOOL stop = FALSE;
+    int barw = 160, bx = XR - barw + 1, w;
+    if (!resizedDuring) {
+        char line[60];
+        fmt(line, "Reading track %ld of 160   (Esc stops)", (LONG)t + 1);
+        textpad(X0, yInfo, HI, BG, line, (XR - X0 + 1) / 8 - barw / 8 - 1);
+        w = t * (barw - 2) / NTRACKS;
+        box(bx, yInfo, XR, yInfo + 7, FG);
+        fill(bx + 1, yInfo + 1, bx + w, yInfo + 6, HI);
+        fill(bx + 1 + w, yInfo + 1, XR - 1, yInfo + 6, BG);
+    }
+    flushinput(&stop);
+    return !stop;
+}
+
+static void surface(void)
+{
+    const char *why;
+    char msg[100];
+    LONG err;
+    if (!loaded || disk_unit(source) < 0)
+        return;
+    if ((err = disk_open(&disk, source, &why))) {
+        fmt(msg, "Cannot open %s: %s.", source, why);
+        message(msg);
+        return;
+    }
+    err = scan_run(&disk, &surf, sc_progress, NULL);
+    disk_close(&disk);
+    drivereleased();
+    afterbusy();
+    drawmap();
+    settab(TAB_SURFACE);
+    if (err)
+        fmt(msg, "Surface scan: %s.", disk_errstr(err));
+    else if (surf.aborted)
+        scopy(msg, "Surface scan stopped.", sizeof(msg));
+    else if (!surf.nodos && !surf.damaged)
+        scopy(msg, "Surface scan: all 160 tracks read well.", sizeof(msg));
+    else
+        fmt(msg, "Surface scan: %ld tracks without AmigaDOS sectors, %ld damaged.", (LONG)surf.nodos, (LONG)surf.damaged);
+    message(msg);
 }
 
 static void openimage(void)
@@ -954,6 +1193,10 @@ static void gadgetup(struct Gadget *g)
             message("Choose a drive or an image first.");
     } else if (id >= GID_TAB && id < GID_TAB + NTABS)
         settab(id - GID_TAB);
+    else if (id == GID_BOT + BB_RESCUE)
+        rescue();
+    else if (id == GID_BOT + BB_SURFACE)
+        surface();
     else if (id == GID_BOT + BB_BLOCK) {
         if (selb >= 0)
             blockview(selb);
@@ -994,7 +1237,7 @@ BOOL ui_handle(void)
 
 /* ---- open / close ------------------------------------------------------------------------------------ */
 
-BOOL ui_open(const char *src, int t, LONG block, const char *file)
+BOOL ui_open(const char *src, int t, LONG block, const char *file, BOOL about)
 {
     struct NewWindow nw = {
         0, 0, WIN_W, 200, 0, 1,
@@ -1048,6 +1291,10 @@ BOOL ui_open(const char *src, int t, LONG block, const char *file)
             selectblk(block, fs.owner[block] ? fs.owner[block] - 1 : -1);
             blockview(block);
         }
+    }
+    if (about) {
+        about_show(win, &topaz8);
+        afterbusy();
     }
     return TRUE;
 }

@@ -145,6 +145,13 @@ LONG disk_open(struct Disk *d, const char *src, const char **why)
         }
         return 0;
     }
+    {   /* another drive: what is known about bad tracks was about another disk */
+        static char last[8];
+        if (nocase_cmp(last, src)) {
+            disk_forget(d);
+            scopy(last, src, sizeof(last));
+        }
+    }
     if (!(d->cache = AllocMem(TRACKBYTES, MEMF_CHIP))) {
         *why = "not enough chip memory";
         return ERROR_NO_FREE_STORE;
@@ -177,6 +184,11 @@ LONG disk_open(struct Disk *d, const char *src, const char **why)
 }
 
 static LONG secterr[SECTORS];               /* per sector of the cached track: 0 = readable */
+/* tracks that failed, and their sectors' errors: a failing track is slow to read (retries,
+   then sector by sector), so after the first time a bad sector answers at once, and the good
+   sectors of a bad track are read one at a time */
+static UBYTE known[NTRACKS];
+static LONG knownerr[NTRACKS][SECTORS];
 
 /* the whole track; if that fails, sector by sector, so the readable sectors of a damaged
    track can still be used */
@@ -193,7 +205,7 @@ static LONG readtrack(struct Disk *d, LONG t)
             secterr[s] = e;
         return e;
     }
-    for (tries = 0; tries < 3; tries++) {
+    for (tries = 0; tries < 2; tries++) {
         if (tries)
             td(CMD_CLEAR, NULL, 0, 0);
         if (!(e = td(CMD_READ, d->cache, TRACKBYTES, (ULONG)t * TRACKBYTES)) || e == TDERR_DiskChanged)
@@ -201,17 +213,30 @@ static LONG readtrack(struct Disk *d, LONG t)
     }
     if (!e)
         return 0;
+    known[t] = 1;
     for (s = 0; s < SECTORS; s++) {
-        if (e == TDERR_DiskChanged)
+        /* sector by sector only helps when a sector's checksum is bad; with no sector headers
+           (unformatted, a custom format) every sector fails, slowly */
+        if (e != TDERR_BadSecSum && e != TDERR_BadHdrSum)
             secterr[s] = e;
         else {
             td(CMD_CLEAR, NULL, 0, 0);
             secterr[s] = td(CMD_READ, d->cache + s * BSIZE, BSIZE, ((ULONG)t * SECTORS + s) * BSIZE);
         }
+        knownerr[t][s] = secterr[s];
         if (secterr[s])
             bad++;
     }
     return bad ? e : 0;
+}
+
+/* forget what is known about bad tracks (a disk change, or the surface scan reading afresh) */
+void disk_forget(struct Disk *d)
+{
+    int t;
+    for (t = 0; t < NTRACKS; t++)
+        known[t] = 0;
+    d->cached = -1;
 }
 
 LONG disk_read(struct Disk *d, LONG block, UBYTE *buf)
@@ -219,6 +244,25 @@ LONG disk_read(struct Disk *d, LONG block, UBYTE *buf)
     LONG t = block / SECTORS, e;
     if (block < 0 || block >= NBLOCKS)
         return ERROR_SEEK_ERROR;
+    if (d->unit >= 0 && known[t] && t != d->cached) {    /* a track known to be bad */
+        LONG s = block % SECTORS, k;
+        if ((e = knownerr[t][s])) {
+            for (k = 0; k < BSIZE; k++)
+                buf[k] = 0;
+            return e;
+        }
+        td(CMD_CLEAR, NULL, 0, 0);
+        if ((e = td(CMD_READ, d->cache, BSIZE, (ULONG)block * BSIZE))) {   /* just this sector */
+            knownerr[t][s] = e;
+            for (k = 0; k < BSIZE; k++)
+                buf[k] = 0;
+            d->cached = -1;
+            return e;
+        }
+        CopyMem(d->cache, buf, BSIZE);
+        d->cached = -1;                              /* (the cache holds only that sector) */
+        return 0;
+    }
     if (t != d->cached) {
         d->cachederr = readtrack(d, t);
         d->cached = t;

@@ -21,6 +21,8 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
 | `fs.c` | The model: one sequential pass summarising every block (type, checksum, keys), then the root, the bitmap and a queue-driven walk of the tree. Builds the ownership map (kind, owner, flags per block) and the object table (files, drawers, links with sizes, block counts and fragments). |
 | `check.c` | The check: findings with a severity, a block and an owner, as plain-English lines ending in a short code (`[HDRCSUM]`). Root and bitmap, what the walk ran into, every block's flags, OFS data blocks (type, owner, sequence, size, checksum), file sizes against block counts, directory caches against the drawers' contents, fragmentation. |
 | `boot.c` | The boot block: DOS type, checksum (add with carry, complement), standard install code recognised by the CRC32 of bytes 12-1023, readable text in custom code. Viruses are not named: without a maintained signature list that would be guesswork. |
+| `recover.c` | Deleted and orphaned files: unowned blocks holding a valid file or drawer header (`key` = its own block, checksum right). Deleted = marked free; orphan = still marked in use, or no bitmap at all (lost root). Whole if no living file owns its data blocks (OFS: and they still say they are its). Rescue copies files, drawers, the whole disk, or found files (into the drawers they were in), with dates, protection and comments; unreadable or foreign blocks become zeros and are counted. One shared path buffer for the drawer walk (4 KB stacks). |
+| `scan.c` | The surface scan: every track read afresh (`disk_forget` first), each one ok, without AmigaDOS sectors (no sector headers: unformatted or a custom format), or damaged. |
 | `blockview.c` | One block as text: what it is and who owns it, its fields decoded for its type (header, OFS data, extension, directory cache, bitmap, boot), pointers resolved to names, then hex and ASCII. Shared by the block viewer and `CMD BLOCK`. |
 | `ui.c` | The window: drive and Image buttons, the 80 x 22 block map with its legend, the info line, Check / Files / Boot tabs over a scrolling list, the block viewer (`view.c` from Oasis with a key hook: n/p for the next/previous block). Start-up arguments (`dowser source [CHECK|FILES|BOOT] [BLOCK=n] [FILE=path]`) also drive the screenshot tests. |
 | `cmd.c` | `INFO`, `MAP`, `FILES`, `BLOCK`, `CHECK`, `BOOT`, `REPORT` (all of them from one read), `MEM` |
@@ -64,6 +66,16 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
 - Releasing an inhibited drive makes DOS report a disk change to every window: Dowser ignores
   disk-change messages for a few seconds after it has used a drive itself.
 - `RawDoFmt` has no `*` width: pad columns by hand.
+- A failing track read is slow (trackdisk retries internally; WinUAE took over a minute per raw
+  track). Dowser retries a track twice, reads sector by sector only for checksum errors (with no
+  sector headers every sector fails, slowly), and remembers bad tracks, so later reads of their
+  sectors answer at once and only the good sectors of a damaged track are read again, singly.
+- Ask DOS about a destination **before** inhibiting a drive: a Lock on an inhibited volume
+  doesn't come back. And use `dos_quiet` (pr_WindowPtr = -1) for it: on Kickstart 1.3 an FFS
+  floppy puts up a "not a DOS disk" requester that waits for a click and stalls a test.
+- When the boot block doesn't say DOS but the root block is intact, the disk is treated as
+  AmigaDOS (OFS if there are OFS data blocks, else FFS), with a warning, so its files can be
+  rescued.
 - After Dowser releases a drive, 1.3's DOS takes back (and later frees) a few K of chip RAM
   for its own buffers: memory checks compare repeated reads, not the first.
 
@@ -84,6 +96,15 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
 - `testcheck.sh` + `tools/checkcheck.py`: each damaged image must report its finding and nothing
   beyond its listed side effects; clean images must report nothing; boot blocks classified;
   fragmentation figures against the Python reader; CHECK and BOOT through emulated drives.
+- `tools/mkdeleted.py` makes the recovery images: files deleted by xdftool (OFS and FFS), a
+  deleted file with one block reused, a lost root, a lost boot block, a destroyed OFS data
+  block, and an extended ADF (`UAE-1ADF`) with two raw tracks without sector headers, which
+  trackdisk can't read, like a damaged floppy.
+- `testrescue.sh` + `tools/checkrescue.py`: DELETED lists, undelete one and all, rescue from
+  good and damaged disks and through drives, compared byte for byte with what
+  `tools/adfmodel.py` decodes from the original image (which can treat given blocks as
+  unreadable), with zeros exactly where blocks were reused, destroyed or unreadable; SCAN of
+  the damaged, a good and an empty drive; rescuing onto the disk being read refused.
 - `testmodel.sh` + `tools/checkmodel.py`: every image from Work: and through emulated drives
   (DF1 writable, DF2 write-protected, DF3 empty), block maps compared character by character,
   images hashed before and after, memory over repeated rounds. Passes on KS1.3 and KS3.1.

@@ -14,7 +14,8 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" -w /src \
   xdftool build/gui.adf format DowserGUI ofs + boot install + write build/dowser dowser \
     + write build/dowser.info dowser.info + makedir s + write build/gui-startup s/startup-sequence >/dev/null"
 cp build/gui.adf "$PLAY/dowser-gui.adf"
-[ -f build/disks/ffs.adf ] && { chmod u+w "$PLAY/dowser-gui-df1.adf" 2>/dev/null || true; cp build/disks/ffs.adf "$PLAY/dowser-gui-df1.adf"; }
+DF1=${DF1:-build/disks/ffs.adf}                 # the disk in DF1: (DF1=... to choose another)
+if [ -f "$DF1" ]; then chmod u+w "$PLAY/dowser-gui-df1.adf" 2>/dev/null || true; cp "$DF1" "$PLAY/dowser-gui-df1.adf"; fi
 for k in ks13 ks31; do
   sed -e 's#^floppy0=.*#floppy0=J:\\amiga\\play\\dowser-gui.adf#' \
       -e 's#^nr_floppies=.*#nr_floppies=2#' \

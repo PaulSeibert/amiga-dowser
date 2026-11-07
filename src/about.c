@@ -58,7 +58,7 @@ void about_show(struct Window *parent, struct TextAttr *ta)
     struct NewWindow nw = {
         0, 0, AB_W, AB_H, 0, 1, CLOSEWINDOW | GADGETUP | RAWKEY,
         WINDOWCLOSE | WINDOWDRAG | WINDOWDEPTH | SMART_REFRESH | NOCAREREFRESH | ACTIVATE,
-        &ok, NULL, (UBYTE *)"About Oasis", NULL, NULL, 0, 0, 0, 0, WBENCHSCREEN
+        &ok, NULL, (UBYTE *)"About Dowser", NULL, NULL, 0, 0, 0, 0, WBENCHSCREEN
     };
     struct Image logo = { 0, 0, 0, 0, 2, NULL, 0x03, 0x00, NULL };
     struct Window *w;

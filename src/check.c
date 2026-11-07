@@ -13,7 +13,7 @@ static const char *const codes[F_COUNT] = {
     "", "NOTDOS", "BOOTSUM", "ROOT", "ROOTCSUM", "BMINVALID", "BMCSUM", "BMBAD", "HDRCSUM",
     "DATACSUM", "TWICE", "UNMARKED", "LOST", "CHAINRANGE", "CHAINTYPE", "CHAINLOOP", "PARENT",
     "HASHSLOT", "EXTBAD", "DATATYPE", "DATAOWNER", "DATASEQ", "DATASIZE", "SIZE", "UNREAD",
-    "UNREADFREE", "DIRCACHE"
+    "UNREADFREE", "DIRCACHE", "BOOTDOS"
 };
 
 static const char *const texts[F_COUNT] = {
@@ -43,14 +43,15 @@ static const char *const texts[F_COUNT] = {
     "Its size doesn't match its blocks.",
     "This block can't be read.",
     "that can't be read.",
-    "The drawer's directory cache doesn't match its contents."
+    "The drawer's directory cache doesn't match its contents.",
+    "The boot block is damaged (it doesn't say DOS): the disk type was worked out from its other blocks."
 };
 
 static const UBYTE sev[F_COUNT] = {
     0, SEV_INFO, SEV_WARN, SEV_ERROR, SEV_ERROR, SEV_WARN, SEV_ERROR, SEV_ERROR, SEV_ERROR,
     SEV_ERROR, SEV_ERROR, SEV_ERROR, SEV_WARN, SEV_ERROR, SEV_ERROR, SEV_ERROR, SEV_WARN,
     SEV_ERROR, SEV_ERROR, SEV_ERROR, SEV_ERROR, SEV_ERROR, SEV_WARN, SEV_ERROR, SEV_ERROR,
-    SEV_WARN, SEV_WARN
+    SEV_WARN, SEV_WARN, SEV_WARN
 };
 
 const char *check_code(int code)
@@ -204,7 +205,9 @@ void check_run(struct FS *fs, struct Disk *d, struct Check *c)
         add(c, F_NOTDOS, 0, -1, 0);
         return;
     }
-    if (c->boot.code && !c->boot.sumok)
+    if (fs->bootbad)
+        add(c, F_BOOTDOS, 0, -1, 0);
+    else if (c->boot.code && !c->boot.sumok)
         add(c, F_BOOTSUM, 0, -1, 0);
 
     /* the root and the bitmap */

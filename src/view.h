@@ -1,4 +1,4 @@
-/* Oasis - the text and hex viewer: a window of its own on the Workbench screen. */
+/* Dowser (shared with Oasis) - the text and hex viewer: a window of its own on the Workbench screen. */
 #ifndef VIEW_H
 #define VIEW_H
 #include <exec/types.h>

@@ -1,4 +1,4 @@
-/* Oasis - AmigaDOS helpers that work on Kickstart 1.3 (V33): device list, paths, dates,
+/* Dowser (shared with Oasis) - AmigaDOS helpers that work on Kickstart 1.3 (V33): device list, paths, dates,
  * error texts, free space, and switching DOS requesters off while probing drives. */
 #ifndef DOS13_H
 #define DOS13_H

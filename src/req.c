@@ -1,4 +1,4 @@
-/* Oasis - modal dialogs: choose a button, or enter a line of text.
+/* Dowser (shared with Oasis) - modal dialogs: choose a button, or enter a line of text.
  * Written by Paul Seibert, (c) 2026 Desert Palms Software. */
 #include <exec/types.h>
 #include <exec/memory.h>

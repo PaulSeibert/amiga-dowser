@@ -1,4 +1,4 @@
-/* Oasis - small string helpers. Written by Paul Seibert, (c) 2026 Desert Palms Software. */
+/* Dowser (shared with Oasis) - small string helpers. Written by Paul Seibert, (c) 2026 Desert Palms Software. */
 #include <proto/exec.h>
 #include <stdarg.h>
 #include "util.h"
