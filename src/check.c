@@ -29,7 +29,7 @@ static const char *const texts[F_COUNT] = {
     "A data block's checksum is wrong: the file may be damaged here.",
     "This block belongs to two files at once.",
     "In use, but the bitmap says this block is free: AmigaDOS may overwrite it.",
-    "blocks are marked in use but belong to nothing (lost space).",
+    "marked in use but belonging to nothing (lost space).",
     "A drawer entry points outside the disk.",
     "A drawer entry points to a block that is not a file or drawer header.",
     "A drawer's entry chain loops back or reuses a block.",
@@ -42,7 +42,7 @@ static const char *const texts[F_COUNT] = {
     "A data block holds the wrong number of bytes.",
     "Its size doesn't match its blocks.",
     "This block can't be read.",
-    "free blocks can't be read.",
+    "that can't be read.",
     "The drawer's directory cache doesn't match its contents."
 };
 
@@ -87,7 +87,8 @@ void check_line(struct FS *fs, const struct Finding *f, char *out, int size)
     else
         scopy(what, "the disk", sizeof(what));
     if (f->code == F_LOST || f->code == F_UNREADFREE)
-        fmt(out, "%s: %ld %s (first: block %ld) [%s]", sname[f->sev], (LONG)f->n, texts[f->code],
+        fmt(out, "%s: %ld %sblock%s %s (first: block %ld) [%s]", sname[f->sev], (LONG)f->n,
+            f->code == F_UNREADFREE ? "free " : "", f->n == 1 ? "" : "s", texts[f->code],
             (LONG)f->block, codes[f->code]);
     else
         fmt(out, "%s: %s, block %ld: %s [%s]", sname[f->sev], what, (LONG)f->block, texts[f->code],
