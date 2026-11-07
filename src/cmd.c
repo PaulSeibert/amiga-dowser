@@ -11,6 +11,7 @@
 #include "fs.h"
 #include "boot.h"
 #include "check.h"
+#include "blockview.h"
 #include "cmd.h"
 
 static struct FS fs;             /* static: far too big for a stack */
@@ -134,51 +135,10 @@ static int files(void)
 
 static int block(LONG b)
 {
-    static ULONG bufl[BSIZE / 4];
-    UBYTE *buf = (UBYTE *)bufl;
-    static char path[PATHMAX];
-    LONG err, i, k;
-    if (b < 0 || b >= NBLOCKS) {
-        out("dowser: no such block\n");
-        return 10;
-    }
-    path[0] = 0;
-    if (fs.owner[b])
-        fs_path(&fs, fs.owner[b] - 1, path, PATHMAX);
-    fmt(line, "block %ld: %s%s%s%s\n", b, fs_kindname(fs.kind[b]), fs.owner[b] ? " of \"" : "",
-        path, fs.owner[b] ? "\"" : "");
-    out(line);
-    err = disk_read(&disk, b, buf);
-    if (err) {
-        fmt(line, "read: %s\n", disk_errstr(err));
-        out(line);
-        return 5;
-    }
-    fmt(line, "flags: %s%s%s%s\n", fs.flags[b] & BF_USED ? "used " : "free ",
-        fs.flags[b] & BF_CSUM ? "checksum-bad " : "", fs.flags[b] & BF_TWICE ? "used-twice " : "",
-        fs.flags[b] & BF_UNMARKED ? "not-marked-in-bitmap " : "");
-    out(line);
-    for (i = 0; i < BSIZE; i += 16) {                /* hex and ASCII */
-        char *d = line;
-        static const char hx[] = "0123456789ABCDEF";
-        fmt(d, "%03lx: ", i);
-        d += 5;
-        for (k = 0; k < 16; k++) {
-            *d++ = hx[buf[i + k] >> 4];
-            *d++ = hx[buf[i + k] & 15];
-            if (k % 4 == 3)
-                *d++ = ' ';
-        }
-        *d++ = ' ';
-        for (k = 0; k < 16; k++) {
-            UBYTE c = buf[i + k];
-            *d++ = (c >= 32 && c < 127) || c >= 0xA0 ? c : '.';
-        }
-        *d++ = '\n';
-        *d = 0;
-        out(line);
-    }
-    return 0;
+    static char text[6000];
+    LONG n = bv_text(&fs, &disk, b, text, sizeof(text));
+    Write(Output(), text, n);
+    return b >= 0 && b < NBLOCKS ? 0 : 10;
 }
 
 static int check(void)

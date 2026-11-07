@@ -21,6 +21,8 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
 | `fs.c` | The model: one sequential pass summarising every block (type, checksum, keys), then the root, the bitmap and a queue-driven walk of the tree. Builds the ownership map (kind, owner, flags per block) and the object table (files, drawers, links with sizes, block counts and fragments). |
 | `check.c` | The check: findings with a severity, a block and an owner, as plain-English lines ending in a short code (`[HDRCSUM]`). Root and bitmap, what the walk ran into, every block's flags, OFS data blocks (type, owner, sequence, size, checksum), file sizes against block counts, directory caches against the drawers' contents, fragmentation. |
 | `boot.c` | The boot block: DOS type, checksum (add with carry, complement), standard install code recognised by the CRC32 of bytes 12-1023, readable text in custom code. Viruses are not named: without a maintained signature list that would be guesswork. |
+| `blockview.c` | One block as text: what it is and who owns it, its fields decoded for its type (header, OFS data, extension, directory cache, bitmap, boot), pointers resolved to names, then hex and ASCII. Shared by the block viewer and `CMD BLOCK`. |
+| `ui.c` | The window: drive and Image buttons, the 80 x 22 block map with its legend, the info line, Check / Files / Boot tabs over a scrolling list, the block viewer (`view.c` from Oasis with a key hook: n/p for the next/previous block). Start-up arguments (`dowser source [CHECK|FILES|BOOT] [BLOCK=n] [FILE=path]`) also drive the screenshot tests. |
 | `cmd.c` | `INFO`, `MAP`, `FILES`, `BLOCK`, `CHECK`, `BOOT`, `REPORT` (all of them from one read), `MEM` |
 
 ## The on-disk format (as used)
@@ -53,6 +55,15 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
   long-aligned (`static ULONG buf[128]`), because the 68000 faults on longs at odd addresses.
 - A full scan of an 880K image takes about 7 s on an emulated 7 MHz 68000: test scripts use
   `CMD REPORT` (one read, three outputs) instead of three separate commands.
+- Drawing 1760 map cells one by one (pen changes, a fill and a frame each) took about a minute
+  on a 7 MHz 68000. Now free cells are left as the background, runs of same-style cells down a
+  column are one fill, and the gaps between cells are drawn back with one line per column and
+  per row: a few seconds. A big selection change redraws the map that way instead of cell by cell.
+- Four Workbench colours aren't enough for fourteen block types: pen plus a 2-line fill pattern
+  (`SetAfPt`, patterns in chip RAM, `JAM2`: pen A where the pattern is set, pen B elsewhere).
+- Releasing an inhibited drive makes DOS report a disk change to every window: Dowser ignores
+  disk-change messages for a few seconds after it has used a drive itself.
+- `RawDoFmt` has no `*` width: pad columns by hand.
 - After Dowser releases a drive, 1.3's DOS takes back (and later frees) a few K of chip RAM
   for its own buffers: memory checks compare repeated reads, not the first.
 

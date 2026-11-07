@@ -56,6 +56,15 @@ static LONG td(UWORD cmd, APTR data, ULONG len, ULONG off)
     return DoIO((struct IORequest *)&io);
 }
 
+BOOL disk_present(int unit)
+{
+    struct IOStdReq t = { 0 };
+    BOOL there = OpenDevice((STRPTR)TD_NAME, unit, (struct IORequest *)&t, 0) == 0;
+    if (there)
+        CloseDevice((struct IORequest *)&t);
+    return there;
+}
+
 int disk_unit(const char *s)
 {
     if ((s[0] | 0x20) == 'd' && (s[1] | 0x20) == 'f' && s[2] >= '0' && s[2] <= '3' && (!s[3] || (s[3] == ':' && !s[4])))

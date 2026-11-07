@@ -1,4 +1,4 @@
-/* About Oasis: a small modal window with the Desert Palms Software shield and credits.
+/* About Dowser: a small modal window with the Desert Palms Software shield and credits.
  * Deliberately quiet: it uses the Workbench's own four colours and never touches the palette. */
 #include <exec/types.h>
 #include <exec/memory.h>
@@ -19,8 +19,8 @@ extern const UWORD logo_W, logo_H, logo_WORDS, logo_13[], logo_20[];
 #define OK_H   14
 
 static const char *const credits[] = {
-    "Oasis 1.0",
-    "Two-pane file manager",
+    "Dowser 1.0",
+    "Disk inspector and rescue tool",
     "for Kickstart 1.3 and later",
     "",
     "Written by Paul Seibert",

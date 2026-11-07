@@ -33,6 +33,7 @@ LONG disk_trackerr(struct Disk *d, LONG t);
 
 /* "DF1:" -> 1, anything else -1 */
 int  disk_unit(const char *src);
+BOOL disk_present(int unit);        /* is there a drive DFunit: (without touching it) */
 const char *disk_errstr(LONG err);
 
 #endif

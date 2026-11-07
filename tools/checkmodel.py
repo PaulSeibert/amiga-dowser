@@ -124,11 +124,12 @@ check('cannot open' in (read('dm-none-info.txt') or ''), 'a missing image is rep
 check('901120' in (read('dm-short-info.txt') or ''), 'a file that is not an 880K image is refused',
       lines('dm-short-info.txt'))
 b0 = lines('dm-b0.txt')
-check(b0[:1] == ['block 0: boot block'] and b0[2].startswith('000: 444F5300'), 'BLOCK 0: boot block, DOS\\0', b0[:3])
+check(b0[:1] == ['block 0: boot block'] and any(l.startswith('000: 444F5300') for l in b0) and
+      any('boot block: no boot code' in l for l in b0), 'BLOCK 0: boot block, DOS\\0, decoded', b0[:4])
 b880 = lines('dm-b880.txt')
-check(b880[:1] == ['block 880: root block of ""'] and 'Test ofs' in ''.join(b880),
-      'BLOCK 880: the root block with the disk name', b880[:2])
-check(lines('dm-df1-b880.txt')[:1] == ['block 880: root block of ""'], 'BLOCK through a drive')
+check(b880[:1] == ['block 880: root block'] and 'name: "Test ofs"' in b880 and 'bitmap: valid, first bitmap block 881' in b880
+      and any(l.startswith('hash table:') for l in b880), 'BLOCK 880: the root block decoded (name, bitmap, hash table)', b880[:8])
+check(lines('dm-df1-b880.txt')[:1] == ['block 880: root block'], 'BLOCK through a drive')
 for n in ('ofs', 'ffsdc', 'frag'):
     check(sorted(l.rsplit('|', 1)[0] for l in lines(f'dm-r2-{n}.txt')) == sorted(models[n].files()),
           f'second round: {n} the same')
