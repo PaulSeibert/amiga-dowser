@@ -19,7 +19,9 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
 |---|---|
 | `disk.c` | Block source: trackdisk with a one-track chip RAM cache (whole track, then sector by sector when a track has errors, so good sectors of a damaged track are kept), or an .adf file. DOS is kept off a drive with ACTION_INHIBIT while Dowser reads it. |
 | `fs.c` | The model: one sequential pass summarising every block (type, checksum, keys), then the root, the bitmap and a queue-driven walk of the tree. Builds the ownership map (kind, owner, flags per block) and the object table (files, drawers, links with sizes, block counts and fragments). |
-| `cmd.c` | `INFO`, `MAP`, `FILES`, `BLOCK`, `REPORT` (all three from one read), `MEM` |
+| `check.c` | The check: findings with a severity, a block and an owner, as plain-English lines ending in a short code (`[HDRCSUM]`). Root and bitmap, what the walk ran into, every block's flags, OFS data blocks (type, owner, sequence, size, checksum), file sizes against block counts, directory caches against the drawers' contents, fragmentation. |
+| `boot.c` | The boot block: DOS type, checksum (add with carry, complement), standard install code recognised by the CRC32 of bytes 12-1023, readable text in custom code. Viruses are not named: without a maintained signature list that would be guesswork. |
+| `cmd.c` | `INFO`, `MAP`, `FILES`, `BLOCK`, `CHECK`, `BOOT`, `REPORT` (all of them from one read), `MEM` |
 
 ## The on-disk format (as used)
 
@@ -34,6 +36,13 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
   (type 8, file header, sequence number, size, next); FFS data blocks are raw.
 - Bitmap: long 0 is the checksum, then one bit per block from block 2, set = free.
 - Directory cache (DOS\4/5): type 33 blocks chained from the drawer's extension field.
+- Standard boot code, CRC32 of bytes 12-1023: Kickstart 1.x Install `2C9F6D94` (opens
+  dos.library), Kickstart 2.0+ Install `9942406E` (also opens expansion.library; it is also what
+  `xdftool boot install` writes). Non-boot Workbench/Extras disks often carry leftover data in
+  the code area with a wrong checksum: they simply don't boot.
+- Directory cache records (type 33 blocks, count at 12, records from 24): header, size,
+  protection (longs), uid, gid, days, minutes, ticks (words), type, name length, name, comment
+  length, comment, padded to an even length.
 - Name hash: h = length; h = (h x 13 + upper(c)) & 0x7FF for each character; slot = h % 72.
   International mode also upper-cases Latin-1 letters 0xE0-0xFE (except 0xF7).
 
@@ -55,6 +64,15 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
   full disk, a blank disk, and two non-AmigaDOS images.
 - `tools/adfmodel.py` is an independent Python reader of the same format: the expected
   INFO / MAP / FILES. Its file lists are in turn checked against xdftool's own listing.
+- `tools/mkbroken.py` damages copies of the images in sixteen known ways (root, header, data and
+  bitmap checksums; a block marked free while in use, lost space, a shared block, an entry
+  outside the disk, a wrong parent, a wrong hash slot, an invalid bitmap, a wrong sequence
+  number, a wrong size, an entry to a non-header, a broken extension chain, an out-of-date
+  directory cache) plus boot blocks (custom with and without a valid checksum, 1.x and 2.0+
+  Install), fixing the checksums it doesn't mean to break.
+- `testcheck.sh` + `tools/checkcheck.py`: each damaged image must report its finding and nothing
+  beyond its listed side effects; clean images must report nothing; boot blocks classified;
+  fragmentation figures against the Python reader; CHECK and BOOT through emulated drives.
 - `testmodel.sh` + `tools/checkmodel.py`: every image from Work: and through emulated drives
   (DF1 writable, DF2 write-protected, DF3 empty), block maps compared character by character,
   images hashed before and after, memory over repeated rounds. Passes on KS1.3 and KS3.1.

@@ -9,10 +9,13 @@
 #include "dos13.h"
 #include "disk.h"
 #include "fs.h"
+#include "boot.h"
+#include "check.h"
 #include "cmd.h"
 
 static struct FS fs;             /* static: far too big for a stack */
 static struct Disk disk;
+static struct Check chk;         /* static: big */
 static char line[600];
 
 static void out(const char *s)
@@ -178,6 +181,71 @@ static int block(LONG b)
     return 0;
 }
 
+static int check(void)
+{
+    static char path[PATHMAX];
+    int i;
+    check_run(&fs, &disk, &chk);
+    for (i = 0; i < chk.nf; i++) {
+        check_line(&fs, &chk.f[i], line, sizeof(line));
+        scat(line, "\n", sizeof(line));
+        out(line);
+    }
+    if (chk.nf < chk.errors + chk.warnings) {
+        fmt(line, "(and %ld more)\n", chk.errors + chk.warnings - chk.nf);
+        out(line);
+    }
+    if (!chk.errors && !chk.warnings)
+        fmt(line, "result: no problems found\n");
+    else
+        fmt(line, "result: %ld error%s, %ld warning%s\n", chk.errors, chk.errors == 1 ? "" : "s",
+            chk.warnings, chk.warnings == 1 ? "" : "s");
+    out(line);
+    if (fs.dos) {
+        path[0] = 0;
+        if (chk.maxfragobj > 0)
+            fs_path(&fs, chk.maxfragobj, path, PATHMAX);
+        if (chk.fragfiles)
+            fmt(line, "fragmented: %ld of %ld files (most pieces: %ld, \"%s\")\n", chk.fragfiles, chk.files,
+                (LONG)chk.maxfrags, path);
+        else
+            fmt(line, "fragmented: 0 of %ld files\n", chk.files);
+        out(line);
+    }
+    return chk.errors ? 10 : chk.warnings ? 5 : 0;
+}
+
+static int boot(void)
+{
+    static ULONG bl[256];
+    struct BootInfo bi;
+    char t[48];
+    int i;
+    disk_read(&disk, 0, (UBYTE *)bl);
+    disk_read(&disk, 1, (UBYTE *)bl + BSIZE);
+    boot_inspect((UBYTE *)bl, &bi);
+    if ((bi.dostype & 0xFFFFFF00UL) == 0x444F5300UL)
+        fmt(t, "DOS\\%ld", (LONG)(bi.dostype & 0xFF));
+    else
+        fmt(t, "$%08lx", bi.dostype);
+    fmt(line, "type: %s\nchecksum: %s\ncode: %s\ncrc32: %08lx\n", t, bi.sumok ? "ok" : "wrong",
+        boot_kindname(bi.kind), bi.crc);
+    out(line);
+    if (bi.kind == BOOT_NOCODE)
+        out("bootable: no (fine for a data disk)\n");
+    else if (!bi.sumok)
+        out("bootable: no: the checksum is wrong, so Kickstart won't run the code\n");
+    else
+        out("bootable: yes\n");
+    if (bi.kind == BOOT_CUSTOM)
+        out("note: custom boot code can be a game loader, a utility or a virus; look up its crc32\n");
+    for (i = 0; i < bi.nstr; i++) {
+        fmt(line, "text: %s\n", bi.str[i]);
+        out(line);
+    }
+    return 0;
+}
+
 int cmd_run(int argc, char **argv)
 {
     int rc = 5;
@@ -187,6 +255,7 @@ int cmd_run(int argc, char **argv)
         return 0;
     }
     if (argc >= 4 && (is(argv[2], "INFO") || is(argv[2], "MAP") || is(argv[2], "FILES") || is(argv[2], "REPORT") ||
+                      is(argv[2], "CHECK") || is(argv[2], "BOOT") ||
                       (is(argv[2], "BLOCK") && argc >= 5))) {
         if (!load(argv[3]))
             return 10;
@@ -202,8 +271,15 @@ int cmd_run(int argc, char **argv)
             out("[MAP]\n");
             map();
             out("[FILES]\n");
-            rc = files();
-        }
+            files();
+            out("[CHECK]\n");
+            rc = check();
+            out("[BOOT]\n");
+            boot();
+        } else if (is(argv[2], "CHECK"))
+            rc = check();
+        else if (is(argv[2], "BOOT"))
+            rc = boot();
         else {
             LONG b = 0;
             const char *c;
@@ -218,7 +294,9 @@ int cmd_run(int argc, char **argv)
         "  dowser CMD INFO <source>         the disk: type, name, dates, blocks, files\n"
         "  dowser CMD MAP <source>          the block map (80 cylinders x 22 blocks)\n"
         "  dowser CMD FILES <source>        every file and drawer: size, blocks, fragments\n"
-        "  dowser CMD REPORT <source>       INFO, MAP and FILES together\n"
+        "  dowser CMD CHECK <source>        what is wrong with the disk, in plain English\n"
+        "  dowser CMD BOOT <source>         the boot block: checksum, boot code, text in it\n"
+        "  dowser CMD REPORT <source>       all of the above from one reading of the disk\n"
         "  dowser CMD BLOCK <source> <n>    one block: what it is, and its contents\n"
         "  dowser CMD MEM                   free memory\n");
     return rc;

@@ -111,6 +111,17 @@ static int newobj(struct FS *fs)
     return fs->nobj++;
 }
 
+/* note something the walk ran into (the check reports it) */
+static void prob(struct FS *fs, int code, LONG block, int obj)
+{
+    if (fs->nprob < MAXPROB) {
+        struct Prob *p = &fs->prob[fs->nprob++];
+        p->code = (UBYTE)code;
+        p->block = (UWORD)block;
+        p->obj = obj < 0 ? NOOBJ : (UWORD)obj;
+    }
+}
+
 void fs_free(struct FS *fs)
 {
     if (fs->obj)
@@ -157,16 +168,26 @@ static int datalist(struct FS *fs, struct Disk *d, int o, UWORD *out, int max, B
     BOOL first = TRUE;
     while (b && steps++ < NBLOCKS) {
         LONG cnt;
-        if (!inrange(b))
+        if (!inrange(b)) {
+            if (mark) {
+                prob(fs, F_EXTBAD, fs->obj[o].header, o);
+                fs->obj[o].status |= OS_DAMAGED;
+            }
             break;
+        }
         if (!first && mark)
             claim(fs, b, BK_EXT, o);
         if (disk_read(d, b, blk)) {
             fs->obj[o].status |= OS_UNREADABLE;
             break;
         }
-        if (!first && (fs_long(blk, 0) != T_LIST || (LONG)fs_long(blk, 0x1F4) != fs->obj[o].header))
-            break;                                   /* not one of this file's extension blocks */
+        if (!first && (fs_long(blk, 0) != T_LIST || (LONG)fs_long(blk, 0x1F4) != fs->obj[o].header)) {
+            if (mark) {                              /* not one of this file's extension blocks */
+                prob(fs, F_EXTBAD, b, o);
+                fs->obj[o].status |= OS_DAMAGED;
+            }
+            break;
+        }
         cnt = (LONG)fs_long(blk, 8);
         if (cnt < 0 || cnt > 72)
             cnt = 72;
@@ -288,7 +309,9 @@ LONG fs_scan(struct FS *fs, struct Disk *d, FsProgress p, void *ctx, const char 
         fs->bmflag = (LONG)fs_long(blk, 0x138);
         for (i = 0; i < 25; i++)
             fs->bmblocks[i] = (LONG)fs_long(blk, 0x13C + i * 4);
-    }
+        fs->rootok = TRUE;
+    } else
+        prob(fs, err ? F_UNREAD : F_ROOT, fs->root, 0);
     i = newobj(fs);                                  /* object 0: the root */
     if (i < 0) {
         *why = "not enough memory";
@@ -300,10 +323,14 @@ LONG fs_scan(struct FS *fs, struct Disk *d, FsProgress p, void *ctx, const char 
     fs->obj[0].date = fs->altered;
     fs->kind[fs->root] = BK_ROOT;
     fs->owner[fs->root] = 1;
+    if (fs->rootok && !fs->bmblocks[0])
+        prob(fs, F_BMBAD, fs->root, 0);
     for (i = 0; i < 25 && fs->bmblocks[i]; i++) {
         LONG bm = fs->bmblocks[i], w, bit;
-        if (!inrange(bm))
+        if (!inrange(bm)) {
+            prob(fs, F_BMBAD, fs->root, 0);
             continue;
+        }
         fs->kind[bm] = BK_BITMAP;
         fs->owner[bm] = 1;
         if (disk_read(d, bm, blk))
@@ -342,11 +369,19 @@ LONG fs_scan(struct FS *fs, struct Disk *d, FsProgress p, void *ctx, const char 
             LONG steps = 0;
             while (e && steps++ < NBLOCKS) {
                 int o, st;
-                if (!inrange(e) || fs->owner[e]) {       /* out of range, or a loop */
+                LONG rerr;
+                if (!inrange(e)) {
+                    prob(fs, F_CHAINRANGE, dhb, dir);
                     fs->obj[dir].status |= OS_DAMAGED;
                     break;
                 }
-                if (disk_read(d, e, blk) || fs_long(blk, 0) != T_HEADER) {
+                if (fs->owner[e]) {                      /* already used: a loop or a cross-link */
+                    prob(fs, F_CHAINLOOP, e, dir);
+                    fs->obj[dir].status |= OS_DAMAGED;
+                    break;
+                }
+                if ((rerr = disk_read(d, e, blk)) || fs_long(blk, 0) != T_HEADER) {
+                    prob(fs, rerr ? F_UNREAD : F_CHAINTYPE, e, dir);
                     fs->obj[dir].status |= OS_DAMAGED;
                     break;
                 }
@@ -363,8 +398,14 @@ LONG fs_scan(struct FS *fs, struct Disk *d, FsProgress p, void *ctx, const char 
                 datestamp(blk, 0x1A4, &fs->obj[o].date);
                 fs->obj[o].kind = st == SEC_DIR ? OK_DIR : st == SEC_FILE ? OK_FILE
                                 : st == SEC_SOFT ? OK_SOFTLINK : OK_HARDLINK;
-                if ((LONG)fs_long(blk, 0x1F4) != dhb)
-                    fs->obj[o].status |= OS_DAMAGED;     /* its parent isn't this drawer */
+                if ((LONG)fs_long(blk, 0x1F4) != dhb) {  /* its parent isn't this drawer */
+                    prob(fs, F_PARENT, e, o);
+                    fs->obj[o].status |= OS_DAMAGED;
+                }
+                if (fs_hash(fs->obj[o].name, fs->intl) != slot) {   /* AmigaDOS won't find it */
+                    prob(fs, F_HASHSLOT, e, o);
+                    fs->obj[o].status |= OS_DAMAGED;
+                }
                 claim(fs, e, st == SEC_DIR ? BK_DIR : st == SEC_FILE ? BK_FILE : BK_LINK, o);
                 e = fs_long(blk, 0x1F0);                 /* next in the hash chain */
                 if (st == SEC_DIR) {

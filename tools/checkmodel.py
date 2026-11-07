@@ -30,7 +30,7 @@ def read(name):
             want = '[' + sec.upper() + ']'
             out, on = [], False
             for l in text.split('\n'):
-                if l in ('[INFO]', '[MAP]', '[FILES]'):
+                if len(l) > 2 and l[0] == '[' and l[-1] == ']' and l[1:-1].isupper():   # any section
                     on = l == want
                 elif on:
                     out.append(l)

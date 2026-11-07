@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
 [ -f art/icon.txt ] && python3 tools/mkicon.py art/icon.txt build/dowser.info 8192
-SRC="src/main.c src/cmd.c src/disk.c src/fs.c src/dos13.c src/util.c"
+SRC="src/main.c src/cmd.c src/disk.c src/fs.c src/check.c src/boot.c src/dos13.c src/util.c"
 docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" -w /src \
   "${AGK_TOOLCHAIN_IMAGE:-amigadev/crosstools:m68k-amigaos}" sh -euc "
   m68k-amigaos-gcc -mcrt=nix13 -m68000 -Os -Wall -Wextra -Wno-unused-parameter -s -Isrc \

@@ -62,6 +62,7 @@ images = {
                      'write src/huge2 huge2.bin', 'delete fill2', 'write src/frag fragmented.bin']),
     'full': ('ffs', ['write src/huge huge.bin', 'write src/readme readme']),
     'blank': ('ofs', []),
+    'boot20': ('ofs', ['boot install', 'write src/readme readme']),   # the 2.0+ Install boot block
 }
 
 with open(os.path.join(out, 'make.sh'), 'w', newline='\n') as f:
