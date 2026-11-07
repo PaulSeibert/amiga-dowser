@@ -16,7 +16,7 @@ struct IntuitionBase *IntuitionBase;
 struct GfxBase *GfxBase;
 
 static const char version[] __attribute__((used)) =
-    "$VER: Dowser 1.0 (6.11.2026) (c) 2026 Desert Palms Software, by Paul Seibert. Freeware.";
+    "$VER: Dowser 1.0 (7.11.2026) (c) 2026 Desert Palms Software, by Paul Seibert. Freeware.";
 
 static BOOL prefix(const char *s, const char *p)
 {

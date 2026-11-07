@@ -396,7 +396,7 @@ static void addgadgets(void)
     for (i = 0; i < NTABS; i++)
         initbtn(&tabs[i], GID_TAB + i, tabLabel[i], X0 + i * (72 + BGAP), yTabs, 72, FALSE, TRUE);
     for (i = 0; i < NBOT; i++)
-        initbtn(&bot[i], GID_BOT + i, botLabel[i], X0 + i * (76 + BGAP), yBot, 76, TRUE, i == BB_BLOCK);
+        initbtn(&bot[i], GID_BOT + i, botLabel[i], X0 + i * (76 + BGAP), yBot, 76, TRUE, FALSE);
     propInfo.Flags = AUTOKNOB | FREEVERT;
     propInfo.VertBody = propInfo.HorizBody = MAXBODY;
     prop = z;
@@ -786,6 +786,8 @@ static void load(const char *src)
     selo = -1;
     for (i = 0; i < NTABS; i++)
         top[i] = cur[i] = 0;
+    for (i = 0; i < NBOT; i++)                       /* on again once the disk is read */
+        enable(&bot[i], FALSE);
     scopy(source, src, sizeof(source));
     label[0] = 0;
     drawlabel();
@@ -815,6 +817,7 @@ static void load(const char *src)
     }
     loaded = TRUE;
     makeboot();
+    enable(&bot[BB_BLOCK], TRUE);
     enable(&bot[BB_RESCUE], fs.dos);
     enable(&bot[BB_SURFACE], disk_unit(src) >= 0);
     if (fs.dos) {

@@ -13,7 +13,7 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
 - **One engine, two front ends**: the window and `dowser CMD ...` use the same modules.
 - **V33 only**, built against the 1.3 includes.
 
-## Modules (so far)
+## Modules
 
 | File | What it does |
 |---|---|
@@ -24,7 +24,7 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
 | `recover.c` | Deleted and orphaned files: unowned blocks holding a valid file or drawer header (`key` = its own block, checksum right). Deleted = marked free; orphan = still marked in use, or no bitmap at all (lost root). Whole if no living file owns its data blocks (OFS: and they still say they are its). Rescue copies files, drawers, the whole disk, or found files (into the drawers they were in), with dates, protection and comments; unreadable or foreign blocks become zeros and are counted. One shared path buffer for the drawer walk (4 KB stacks). |
 | `scan.c` | The surface scan: every track read afresh (`disk_forget` first), each one ok, without AmigaDOS sectors (no sector headers: unformatted or a custom format), or damaged. |
 | `blockview.c` | One block as text: what it is and who owns it, its fields decoded for its type (header, OFS data, extension, directory cache, bitmap, boot), pointers resolved to names, then hex and ASCII. Shared by the block viewer and `CMD BLOCK`. |
-| `ui.c` | The window: drive and Image buttons, the 80 x 22 block map with its legend, the info line, Check / Files / Boot tabs over a scrolling list, the block viewer (`view.c` from Oasis with a key hook: n/p for the next/previous block). Start-up arguments (`dowser source [CHECK|FILES|BOOT] [BLOCK=n] [FILE=path]`) also drive the screenshot tests. |
+| `ui.c` | The window: drive and Image buttons, the 80 x 22 block map with its legend, the info line, Check / Files / Deleted / Boot / Surface tabs over a scrolling list, Block / Rescue / Surface buttons (ghosted until a disk is read; Rescue needs an AmigaDOS disk, Surface a drive), the block viewer (`view.c` from Oasis with a key hook: n/p for the next/previous block). Start-up arguments (`dowser source [CHECK|FILES|DELETED|BOOT|SURFACE] [BLOCK=n] [FILE=path] [ABOUT]`) also drive the screenshot tests. |
 | `cmd.c` | `INFO`, `MAP`, `FILES`, `BLOCK`, `CHECK`, `BOOT`, `REPORT` (all of them from one read), `MEM` |
 
 ## The on-disk format (as used)
@@ -108,3 +108,15 @@ How Dowser is put together, what we learned writing it for Kickstart 1.3, and ho
 - `testmodel.sh` + `tools/checkmodel.py`: every image from Work: and through emulated drives
   (DF1 writable, DF2 write-protected, DF3 empty), block maps compared character by character,
   images hashed before and after, memory over repeated rounds. Passes on KS1.3 and KS3.1.
+
+## Release
+
+- `./release.sh` builds `dist/Dowser.lha` (drawer icon, program, icon, readme with a More
+  icon), `dist/Dowser.readme` and `dist/dowser.adf`, which boots straight into Dowser and holds
+  only Dowser's own files.
+- `Dowser.readme` is in Aminet format (`Type: disk/salv`). Aminet allows 40 characters on the
+  `Short:` line. The Uploader address stays a placeholder for the author to fill in.
+- README screenshots: `testgui.sh "ARGS"` boots the window on a test image, the WinUAE window
+  is captured with the skill's `shot.ps1`, and the Dowser window is cropped out at
+  (60, 54)-(712, 580), 652 x 526. The demo GIF is those stills, 2.8 s each, 16 colours.
+- Before release the name was checked on Aminet again (no package called Dowser, 2026-11-07).
